@@ -1,7 +1,11 @@
--- Sab Hub v1.1 – Часть 1 (Логика и Функции)
+-- ========================================================
+-- Sab Hub v1.1 – Часть 1 (Основные переменные, логика и функции)
+-- ========================================================
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
@@ -21,13 +25,16 @@ getgenv().SabConfig = {
     thirdPersonDistance = 8,
     thirdPersonHeight = 3,
     bunnyHopEnabled = false,
-    infiniteJumpEnabled = true
+    infiniteJumpEnabled = true,
+    teleportDist = 5, -- Расстояние при телепорте
+    teleKillEnabled = false -- Состояние для TeleKill
 }
 
 local cfg = getgenv().SabConfig
 local maxJumps = 999999
 local currentJumps = 0
 local spinAngle = 0
+local teleKillTarget = nil
 
 -- Прыжки
 UserInputService.JumpRequest:Connect(function()
@@ -47,6 +54,52 @@ UserInputService.JumpRequest:Connect(function()
         end
     end
 end)
+
+-- Поиск ближайшей цели (для Аима)
+local function getClosestTarget()
+    local closest, minDist = nil, cfg.FOV
+    local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            local hum = player.Character:FindFirstChild("Humanoid")
+            if hrp and hum and hum.Health > 0 then
+                local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+                if onScreen then
+                    local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+                    if dist < minDist then
+                        minDist = dist
+                        closest = hrp
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+-- Функция TeleportRandomPlayer (телепорт к случайному или ближайшему игроку один раз без молний)
+local function teleportRandomPlayer()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local alivePlayers = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local pRoot = player.Character:FindFirstChild("HumanoidRootPart")
+            local pHum = player.Character:FindFirstChild("Humanoid")
+            if pRoot and pHum and pHum.Health > 0 then
+                table.insert(alivePlayers, pRoot)
+            end
+        end
+    end
+
+    if #alivePlayers > 0 then
+        local target = alivePlayers[math.random(1, #alivePlayers)]
+        hrp.CFrame = target.CFrame * CFrame.new(0, 0, -cfg.teleportDist)
+    end
+end
 
 -- Chams
 local chamsHighlights = {}
@@ -168,31 +221,40 @@ local function updateESP()
     end
 end
 
-local function getClosestTarget()
-    local closest, minDist = nil, cfg.FOV
-    local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-            local hum = player.Character:FindFirstChild("Humanoid")
-            if hrp and hum and hum.Health > 0 then
-                local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
-                if onScreen then
-                    local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
-                    if dist < minDist then
-                        minDist = dist
-                        closest = hrp
-                    end
-                end
-            end
-        end
-    end
-    return closest
-end
-
 RunService.RenderStepped:Connect(function()
     updateESP()
     updateChams()
+
+    -- Логика TeleKill (постоянное следование за спиной противника)
+    if cfg.teleKillEnabled then
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            if not teleKillTarget or not teleKillTarget.Parent or not teleKillTarget.Parent:FindFirstChild("Humanoid") or teleKillTarget.Parent.Humanoid.Health <= 0 then
+                teleKillTarget = nil
+                local minDist = math.huge
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= LocalPlayer and player.Character then
+                        local pRoot = player.Character:FindFirstChild("HumanoidRootPart")
+                        local pHum = player.Character:FindFirstChild("Humanoid")
+                        if pRoot and pHum and pHum.Health > 0 then
+                            local dist = (hrp.Position - pRoot.Position).Magnitude
+                            if dist < minDist then
+                                minDist = dist
+                                teleKillTarget = pRoot
+                            end
+                        end
+                    end
+                end
+            end
+
+            if teleKillTarget then
+                hrp.CFrame = teleKillTarget.CFrame * CFrame.new(0, 0, cfg.teleportDist)
+            end
+        end
+    else
+        teleKillTarget = nil
+    end
 
     if cfg.spinEnabled then
         local char = LocalPlayer.Character
@@ -243,18 +305,9 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         end
     end
 end)
-
-print("✅ Часть 1 загружена!")
--- Sab Hub v1.1 – Часть 2 (Интерфейс GUI)
-local CoreGui = game:GetService("CoreGui")
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
-
-local cfg = getgenv().SabConfig or {
-    espEnabled = false, espNameEnabled = true, espHealthEnabled = true, espDistEnabled = true,
-    chamsEnabled = false, aimbotEnabled = false, silentAimEnabled = false, FOV = 150,
-    spinEnabled = false, spinSpeed = 5, thirdPersonEnabled = false, bunnyHopEnabled = true, infiniteJumpEnabled = true
-}
+-- ========================================================
+-- Sab Hub v1.1 – Часть 2 (Графический интерфейс и меню)
+-- ========================================================
 
 if CoreGui:FindFirstChild("SabHubGUI") then
     CoreGui.SabHubGUI:Destroy()
@@ -359,7 +412,7 @@ local function createTabPage(name)
     page.Position = UDim2.new(0, 5, 0, 5)
     page.BackgroundTransparency = 1
     page.BorderSizePixel = 0
-    page.CanvasSize = UDim2.new(0, 0, 0, 400)
+    page.CanvasSize = UDim2.new(0, 0, 0, 450)
     page.ScrollBarThickness = 3
     page.Visible = false
     page.Parent = ContentArea
@@ -575,6 +628,24 @@ local function addSlider(parent, text, key, min, max, default)
     end)
 end
 
+local function addButton(parent, text, callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -5, 0, 34)
+    btn.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+    btn.BorderSizePixel = 0
+    btn.Font = Enum.Font.GothamBold
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 12
+    btn.Parent = parent
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = btn
+
+    btn.MouseButton1Click:Connect(callback)
+end
+
 -- НАПОЛНЕНИЕ ВКЛАДОК
 local mainTitle = Instance.new("TextLabel")
 mainTitle.Size = UDim2.new(1, -5, 0, 25)
@@ -596,20 +667,29 @@ mainTele.TextSize = 13
 mainTele.TextXAlignment = Enum.TextXAlignment.Left
 mainTele.Parent = pageMain
 
+-- Вкладка Aim
 addToggle(pageAim, "Aimbot", "aimbotEnabled", false)
 addToggle(pageAim, "Silent Aim", "silentAimEnabled", false)
 addSlider(pageAim, "FOV Size", "FOV", 50, 400, 150)
 
+-- Вкладка WallHack
 addToggle(pageWH, "Enable ESP (Global)", "espEnabled", false)
 addToggle(pageWH, "ESP Nicknames", "espNameEnabled", true)
 addToggle(pageWH, "ESP Health Bar", "espHealthEnabled", true)
 addToggle(pageWH, "ESP Distance", "espDistEnabled", true)
 addToggle(pageWH, "Chams (Highlight)", "chamsEnabled", false)
 
+-- Вкладка Rest (функционал движения, SpinBot, TeleportRandomPlayer и TeleKill)
 addToggle(pageRest, "SpinBot", "spinEnabled", false)
 addSlider(pageRest, "Spin Speed", "spinSpeed", 1, 30, 5)
 addToggle(pageRest, "Third Person", "thirdPersonEnabled", false)
 addToggle(pageRest, "BunnyHop", "bunnyHopEnabled", false)
 addToggle(pageRest, "Infinite Jump", "infiniteJumpEnabled", true)
 
-print("✅ Часть 2 загружена. Sab Hub v1.1 полностью готов!")
+addButton(pageRest, "TeleportRandomPlayer", function()
+    teleportRandomPlayer()
+end)
+
+addToggle(pageRest, "TeleKill", "teleKillEnabled", false)
+
+print("✅ Sab Hub v1.1 полностью загружен и готов к использованию!")
