@@ -1,858 +1,615 @@
--- ============================================================
--- ЧАСТЬ 1: Все функции (ESP, CHAMS, Aimbot, Spin, Camera, Silent Aim, BunnyHop, Telekill, MassKill, Follow)
--- ============================================================
-print("Загрузка части 1...")
-
+-- Sab Hub v1.1 – Часть 1 (Логика и Функции)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
-local CoreGui = game:GetService("CoreGui")
 
--- Настройки
-local espEnabled = false
-local aimbotEnabled = false
-local spinEnabled = false
-local thirdPersonEnabled = false
-local silentAimEnabled = false
-local bunnyHopEnabled = false
-local chamsEnabled = false
-local FOV = 150
-local spinSpeed = 5
-local thirdPersonDistance = 8
-local thirdPersonHeight = 3
-local bhopSpeed = 28
+-- ===== НАСТРОЙКИ ФУНКЦИЙ =====
+getgenv().SabConfig = {
+    espEnabled = false,
+    espNameEnabled = true,
+    espHealthEnabled = true,
+    espDistEnabled = true,
+    chamsEnabled = false,
+    aimbotEnabled = false,
+    silentAimEnabled = false,
+    FOV = 150,
+    spinEnabled = false,
+    spinSpeed = 5,
+    thirdPersonEnabled = false,
+    thirdPersonDistance = 8,
+    thirdPersonHeight = 3,
+    bunnyHopEnabled = false,
+    infiniteJumpEnabled = true
+}
+
+local cfg = getgenv().SabConfig
+local maxJumps = 999999
+local currentJumps = 0
 local spinAngle = 0
 
--- Переменные для Instant Kill (следование)
-local followEnabled = false
-local followTarget = nil
-
--- Переменные для MassKill
-local massKillEnabled = false
-local massKillThread = nil
-
--- ===== CHAMS =====
-local chamsHighlights = {}
-local function createChams(player)
-    if chamsHighlights[player] then return end
-    local char = player.Character
-    if not char then return end
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "ChamsHighlight"
-    highlight.Adornee = char
-    highlight.FillColor = Color3.fromRGB(0, 255, 0)
-    highlight.FillTransparency = 0.3
-    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-    highlight.OutlineTransparency = 0
-    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.Enabled = chamsEnabled
-    highlight.Parent = char
-    chamsHighlights[player] = highlight
-end
-local function removeChams(player)
-    if chamsHighlights[player] then chamsHighlights[player]:Destroy() end
-    chamsHighlights[player] = nil
-end
-local function updateChams()
-    if not chamsEnabled then
-        for p, _ in pairs(chamsHighlights) do removeChams(p) end
-        return
-    end
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player == LocalPlayer then continue end
-        local char = player.Character
-        if not char then
-            if chamsHighlights[player] then removeChams(player) end
-            continue
-        end
-        local hum = char:FindFirstChild("Humanoid")
-        if not hum or hum.Health <= 0 then
-            if chamsHighlights[player] then removeChams(player) end
-            continue
-        end
-        if not chamsHighlights[player] then createChams(player)
-        else chamsHighlights[player].Enabled = true
-        end
-    end
-    for p, _ in pairs(chamsHighlights) do if not p.Parent then removeChams(p) end end
-end
-Players.PlayerAdded:Connect(function(player)
-    player.CharacterAdded:Connect(function()
-        task.wait(0.3)
-        if chamsEnabled then createChams(player) end
-    end)
-end)
-
--- ===== ESP =====
-local espLabels = {}
-local function createESP(player)
-    if espLabels[player] then return end
-    local char = player.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    local head = char:FindFirstChild("Head") or hrp
-    if not head then return end
-    local billboard = Instance.new("BillboardGui")
-    billboard.Name = "ESP_Billboard"
-    billboard.Adornee = head
-    billboard.Size = UDim2.new(0, 200, 0, 80)
-    billboard.StudsOffset = Vector3.new(0, 2.5, 0)
-    billboard.AlwaysOnTop = true
-    billboard.Parent = head
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.Text = player.Name
-    nameLabel.TextColor3 = player.TeamColor and player.TeamColor.Color or Color3.new(1, 0, 0)
-    nameLabel.TextScaled = true
-    nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.Parent = billboard
-    local healthBar = Instance.new("Frame")
-    healthBar.Size = UDim2.new(0, 80, 0, 6)
-    healthBar.Position = UDim2.new(0.5, -40, 0.6, 0)
-    healthBar.BackgroundColor3 = Color3.new(0, 1, 0)
-    healthBar.BackgroundTransparency = 0.3
-    healthBar.Parent = billboard
-    local distLabel = Instance.new("TextLabel")
-    distLabel.Size = UDim2.new(1, 0, 0.3, 0)
-    distLabel.Position = UDim2.new(0, 0, 0.7, 0)
-    distLabel.BackgroundTransparency = 1
-    distLabel.Text = ""
-    distLabel.TextColor3 = Color3.new(1, 1, 0)
-    distLabel.TextScaled = true
-    distLabel.Font = Enum.Font.Gotham
-    distLabel.Parent = billboard
-    espLabels[player] = { billboard = billboard, name = nameLabel, health = healthBar, dist = distLabel }
-end
-local function removeESP(player)
-    if espLabels[player] then espLabels[player].billboard:Destroy() end
-    espLabels[player] = nil
-end
-local function updateESP()
-    if not espEnabled then
-        for p, _ in pairs(espLabels) do removeESP(p) end
-        return
-    end
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player == LocalPlayer then continue end
-        local char = player.Character
-        if not char then
-            if espLabels[player] then removeESP(player) end
-            continue
-        end
-        local hum = char:FindFirstChild("Humanoid")
-        if not hum or hum.Health <= 0 then
-            if espLabels[player] then removeESP(player) end
-            continue
-        end
-        if not espLabels[player] then createESP(player) end
-        if espLabels[player] then
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                local dist = (Camera.CFrame.Position - hrp.Position).Magnitude
-                espLabels[player].dist.Text = string.format("%.0fm", dist)
-            end
-            local color = player.TeamColor and player.TeamColor.Color or Color3.new(1, 0, 0)
-            espLabels[player].name.TextColor3 = color
-            local healthPercent = hum.Health / hum.MaxHealth
-            local healthBar = espLabels[player].health
-            healthBar.Size = UDim2.new(healthPercent, 0, 0, 6)
-            healthBar.BackgroundColor3 = healthPercent > 0.5 and Color3.new(0, 1, 0) or (healthPercent > 0.25 and Color3.new(1, 1, 0) or Color3.new(1, 0, 0))
-        end
-    end
-    for p, _ in pairs(espLabels) do if not p.Parent then removeESP(p) end end
-end
-Players.PlayerAdded:Connect(function(player)
-    player.CharacterAdded:Connect(function()
-        task.wait(0.3)
-        if espEnabled then createESP(player) end
-    end)
-end)
-
--- ===== АИМБОТ =====
-local function getClosestTarget()
-    local closest, minDist = nil, FOV
-    local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player == LocalPlayer then continue end
-        local char = player.Character
-        if not char then continue end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        local hum = char:FindFirstChild("Humanoid")
-        if not hrp or not hum or hum.Health <= 0 then continue end
-        local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
-        if not onScreen then continue end
-        local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
-        if dist < minDist then minDist = dist; closest = hrp end
-    end
-    return closest
-end
-
--- ===== ПОИСК БЛИЖАЙШЕГО ИГРОКА =====
-local function getClosestPlayer()
-    local closest = nil
-    local minDist = FOV
-    local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player == LocalPlayer then continue end
-        local char = player.Character
-        if not char then continue end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        local hum = char:FindFirstChild("Humanoid")
-        if not hrp or not hum or hum.Health <= 0 then continue end
-        local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
-        if not onScreen then continue end
-        local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
-        if dist < minDist then
-            minDist = dist
-            closest = player
-        end
-    end
-    return closest
-end
-
--- ===== SPIN =====
-local function doSpin()
-    if not spinEnabled then return end
-    local character = LocalPlayer.Character
-    if not character then return end
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    spinAngle = spinAngle + math.rad(spinSpeed)
-    hrp.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, spinAngle, 0)
-end
-
--- ===== КАМЕРА =====
-local function updateCamera()
-    local character = LocalPlayer.Character
-    if not character then return end
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    local targetPoint = nil
-    if aimbotEnabled then
-        local target = getClosestTarget()
-        if target then targetPoint = target.Position end
-    end
-    if thirdPersonEnabled then
-        local lookDir = (targetPoint and (targetPoint - hrp.Position).Unit) or hrp.CFrame.LookVector
-        if lookDir.Magnitude < 0.1 then lookDir = Vector3.new(0, 0, -1) end
-        local camPos = hrp.Position - lookDir * thirdPersonDistance + Vector3.new(0, thirdPersonHeight, 0)
-        local lookTarget = targetPoint or (hrp.Position + Vector3.new(0, 1.5, 0))
-        Camera.CFrame = CFrame.new(camPos, lookTarget)
-    else
-        if aimbotEnabled and targetPoint then
-            Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPoint)
-        end
-    end
-end
-
--- ===== SILENT AIM =====
-local function doSilentAim()
-    if not silentAimEnabled then return end
-    local target = getClosestTarget()
-    if target then Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Position) end
-end
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        if silentAimEnabled then doSilentAim() end
-    end
-end)
-
--- ===== BUNNYHOP =====
-local function doBunnyHop()
-    if not bunnyHopEnabled then return end
-    local character = LocalPlayer.Character
-    if not character then return end
-    local humanoid = character:FindFirstChild("Humanoid")
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not humanoid or not hrp then return end
-    local state = humanoid:GetState()
-    if state == Enum.HumanoidStateType.Landed or state == Enum.HumanoidStateType.Running then
-        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-        task.wait(0.05)
-    end
-    if state == Enum.HumanoidStateType.Jumping or state == Enum.HumanoidStateType.Freefall then
-        local vel = hrp.AssemblyLinearVelocity
-        local horizontal = Vector3.new(vel.X, 0, vel.Z)
-        if horizontal.Magnitude < bhopSpeed then
-            local dir = horizontal.Unit
-            if dir.Magnitude < 0.1 then
-                dir = Camera.CFrame.LookVector
-                dir = Vector3.new(dir.X, 0, dir.Z).Unit
-            end
-            hrp.AssemblyLinearVelocity = Vector3.new(dir.X * bhopSpeed, vel.Y, dir.Z * bhopSpeed)
-        end
-    end
-end
+-- Прыжки
 UserInputService.JumpRequest:Connect(function()
-    if bunnyHopEnabled then
-        local character = LocalPlayer.Character
-        if not character then return end
-        local humanoid = character:FindFirstChild("Humanoid")
-        if not humanoid then return end
-        local state = humanoid:GetState()
-        if state == Enum.HumanoidStateType.Landed or state == Enum.HumanoidStateType.Running then
-            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+    if not cfg.infiniteJumpEnabled then return end
+    local character = LocalPlayer.Character
+    if not character then return end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not rootPart then return end
+
+    if humanoid:GetState() == Enum.HumanoidStateType.Running then
+        currentJumps = 0
+    else
+        if currentJumps < maxJumps then
+            currentJumps = currentJumps + 1
+            rootPart.AssemblyLinearVelocity = Vector3.new(rootPart.AssemblyLinearVelocity.X, 50, rootPart.AssemblyLinearVelocity.Z)
         end
     end
 end)
 
--- ============================================================
---                  TELEKILL (улучшенный)
--- ============================================================
-local function Telekill()
-    local myChar = LocalPlayer.Character
-    if not myChar then 
-        warn("Telekill: у вас нет персонажа")
-        return 
+-- Chams
+local chamsHighlights = {}
+local function updateChams()
+    if not cfg.chamsEnabled then
+        for p, h in pairs(chamsHighlights) do if h then h:Destroy() end end
+        chamsHighlights = {}
+        return
     end
-    local myRoot = myChar:FindFirstChild("HumanoidRootPart")
-    if not myRoot then 
-        warn("Telekill: нет HumanoidRootPart")
-        return 
-    end
-
-    local targetPos = myRoot.Position
-    local count = 0
-
     for _, player in ipairs(Players:GetPlayers()) do
-        if player == LocalPlayer then continue end
-        local char = player.Character
-        if not char then continue end
-        local root = char:FindFirstChild("HumanoidRootPart")
-        if root then
-            local offset = Vector3.new(
-                math.random(-3, 3),
-                0,
-                math.random(-3, 3)
-            )
-            root.CFrame = CFrame.new(targetPos + offset)
-            count = count + 1
+        if player ~= LocalPlayer and player.Character then
+            local char = player.Character
+            local hum = char:FindFirstChild("Humanoid")
+            if hum and hum.Health > 0 then
+                if not chamsHighlights[player] or not chamsHighlights[player].Parent then
+                    local h = Instance.new("Highlight")
+                    h.Adornee = char
+                    h.FillColor = Color3.fromRGB(0, 255, 0)
+                    h.FillTransparency = 0.3
+                    h.OutlineColor = Color3.fromRGB(255, 255, 255)
+                    h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    h.Parent = char
+                    chamsHighlights[player] = h
+                else
+                    chamsHighlights[player].Enabled = true
+                end
+            else
+                if chamsHighlights[player] then chamsHighlights[player]:Destroy(); chamsHighlights[player] = nil end
+            end
         end
     end
-
-    print(string.format("✅ Telekill: %d игроков телепортировано к вам", count))
 end
 
--- ============================================================
---                  MASSKILL (через coroutine)
--- ============================================================
-local function startMassKill()
-    if massKillThread then return end
+-- ESP
+local espData = {}
+local function updateESP()
+    if not cfg.espEnabled then
+        for p, data in pairs(espData) do
+            if data.hl then data.hl:Destroy() end
+            if data.bb then data.bb:Destroy() end
+        end
+        espData = {}
+        return
+    end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local char = player.Character
+            local hum = char and char:FindFirstChild("Humanoid")
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if char and hum and hrp and hum.Health > 0 then
+                if not espData[player] then
+                    local highlight = Instance.new("Highlight")
+                    highlight.Adornee = char
+                    highlight.FillColor = Color3.fromRGB(255, 255, 255)
+                    highlight.FillTransparency = 0.3
+                    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    highlight.Parent = char
 
-    massKillEnabled = true
-    massKillThread = coroutine.create(function()
-        while massKillEnabled do
-            local myChar = LocalPlayer.Character
-            if myChar then
-                local myRoot = myChar:FindFirstChild("HumanoidRootPart")
-                if myRoot then
-                    local targets = {}
-                    for _, player in ipairs(Players:GetPlayers()) do
-                        if player ~= LocalPlayer then
-                            local char = player.Character
-                            if char then
-                                local root = char:FindFirstChild("HumanoidRootPart")
-                                if root then
-                                    table.insert(targets, root)
-                                end
-                            end
-                        end
-                    end
+                    local billboard = Instance.new("BillboardGui")
+                    billboard.Adornee = char:FindFirstChild("Head") or hrp
+                    billboard.Size = UDim2.new(0, 100, 0, 50)
+                    billboard.StudsOffset = Vector3.new(0, 2, 0)
+                    billboard.AlwaysOnTop = true
+                    billboard.Parent = billboard.Adornee
 
-                    if #targets > 0 then
-                        local targetRoot = targets[math.random(1, #targets)]
-                        myRoot.CFrame = targetRoot.CFrame + Vector3.new(0, 2, 0)
-                        print("🚀 MassKill: телепортировался к " .. targetRoot.Parent.Name)
-                    else
-                        print("⚠️ MassKill: нет доступных игроков")
+                    local nameL = Instance.new("TextLabel")
+                    nameL.Size = UDim2.new(1, 0, 0.3, 0)
+                    nameL.BackgroundTransparency = 1
+                    nameL.Text = player.Name
+                    nameL.TextColor3 = Color3.fromRGB(255, 255, 255)
+                    nameL.TextSize = 11
+                    nameL.Font = Enum.Font.GothamBold
+                    nameL.Parent = billboard
+
+                    local hpBg = Instance.new("Frame")
+                    hpBg.Size = UDim2.new(0, 4, 0, 25)
+                    hpBg.Position = UDim2.new(0.1, 0, 0.35, 0)
+                    hpBg.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+                    hpBg.Parent = billboard
+
+                    local hpFill = Instance.new("Frame")
+                    hpFill.Size = UDim2.new(1, 0, 1, 0)
+                    hpFill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+                    hpFill.Parent = hpBg
+
+                    local distL = Instance.new("TextLabel")
+                    distL.Size = UDim2.new(1, 0, 0.3, 0)
+                    distL.Position = UDim2.new(0, 0, 0.7, 0)
+                    distL.BackgroundTransparency = 1
+                    distL.TextColor3 = Color3.fromRGB(255, 255, 255)
+                    distL.TextSize = 9
+                    distL.Font = Enum.Font.Gotham
+                    distL.Parent = billboard
+
+                    espData[player] = {hl = highlight, bb = billboard, name = nameL, fill = hpFill, dist = distL, hpB = hpBg}
+                else
+                    local d = espData[player]
+                    d.hl.Enabled = true
+                    d.bb.Enabled = true
+                    d.name.Visible = cfg.espNameEnabled
+                    d.hpB.Visible = cfg.espHealthEnabled
+                    d.dist.Visible = cfg.espDistEnabled
+
+                    local hpPercent = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+                    d.fill.Size = UDim2.new(1, 0, hpPercent, 0)
+                    d.fill.Position = UDim2.new(0, 0, 1 - hpPercent, 0)
+
+                    local dist = (Camera.CFrame.Position - hrp.Position).Magnitude
+                    d.dist.Text = string.format("%.0fm", dist)
+                end
+            else
+                if espData[player] then
+                    if espData[player].hl then espData[player].hl:Destroy() end
+                    if espData[player].bb then espData[player].bb:Destroy() end
+                    espData[player] = nil
+                end
+            end
+        end
+    end
+end
+
+local function getClosestTarget()
+    local closest, minDist = nil, cfg.FOV
+    local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            local hum = player.Character:FindFirstChild("Humanoid")
+            if hrp and hum and hum.Health > 0 then
+                local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+                if onScreen then
+                    local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+                    if dist < minDist then
+                        minDist = dist
+                        closest = hrp
                     end
                 end
             end
-
-            for _ = 1, 60 do
-                if not massKillEnabled then break end
-                wait(1)
-            end
         end
-        massKillThread = nil
-        print("⏹️ MassKill остановлен")
-    end)
-
-    coroutine.resume(massKillThread)
-end
-
-local function stopMassKill()
-    massKillEnabled = false
-end
-
-local function toggleMassKill()
-    if massKillEnabled then
-        stopMassKill()
-    else
-        startMassKill()
     end
+    return closest
 end
 
--- ===== ТЕЛЕПОРТ ЗА СПИНУ (Instant Kill Follow) =====
-local function teleportBehind(target)
-    if not target then return end
-    local char = target.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    local myChar = LocalPlayer.Character
-    if not myChar then return end
-    local myHrp = myChar:FindFirstChild("HumanoidRootPart")
-    if not myHrp then return end
-    local lookVec = hrp.CFrame.LookVector
-    local behindPos = hrp.Position - lookVec * 4 + Vector3.new(0, 2, 0)
-    myHrp.CFrame = CFrame.new(behindPos, hrp.Position)
-end
-
-local function toggleFollow()
-    if followEnabled then
-        followEnabled = false
-        followTarget = nil
-        return
-    end
-    local target = getClosestPlayer()
-    if target then
-        followTarget = target
-        followEnabled = true
-        teleportBehind(target)
-    end
-end
-
-print("✅ Часть 1 загружена (все функции). Теперь выполните часть 2.")
--- ============================================================
--- ЧАСТЬ 2: GUI и основной цикл
--- ============================================================
-print("Загрузка части 2...")
-
--- ===== ОСНОВНОЙ ЦИКЛ =====
 RunService.RenderStepped:Connect(function()
     updateESP()
     updateChams()
-    doSpin()
-    updateCamera()
-    doBunnyHop()
-    
-    if followEnabled and followTarget then
-        local char = followTarget.Character
-        if not char then
-            followEnabled = false
-            followTarget = nil
-            return
+
+    if cfg.spinEnabled then
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            spinAngle = spinAngle + math.rad(cfg.spinSpeed)
+            hrp.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, spinAngle, 0)
         end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hrp then
-            followEnabled = false
-            followTarget = nil
-            return
-        end
-        local hum = char:FindFirstChild("Humanoid")
-        if not hum or hum.Health <= 0 then
-            followEnabled = false
-            followTarget = nil
-            return
-        end
-        local myChar = LocalPlayer.Character
-        if not myChar then return end
-        local myHrp = myChar:FindFirstChild("HumanoidRootPart")
-        if not myHrp then return end
-        local lookVec = hrp.CFrame.LookVector
-        local behindPos = hrp.Position - lookVec * 4 + Vector3.new(0, 2, 0)
-        myHrp.CFrame = CFrame.new(behindPos, hrp.Position)
     end
-end)
 
--- ===== GUI =====
-local gui = Instance.new("ScreenGui")
-gui.Name = "SabbGUI"
-gui.ResetOnSpawn = false
-gui.Parent = CoreGui
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        local targetPoint = nil
+        if cfg.aimbotEnabled then
+            local target = getClosestTarget()
+            if target then targetPoint = target.Position end
+        end
 
-local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 200, 0, 560)
-mainFrame.Position = UDim2.new(0, 10, 0, 10)
-mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
-mainFrame.BackgroundTransparency = 0.1
-mainFrame.BorderSizePixel = 1
-mainFrame.BorderColor3 = Color3.fromRGB(60, 60, 80)
-mainFrame.Parent = gui
-mainFrame.ClipsDescendants = true
+        if cfg.thirdPersonEnabled then
+            local lookDir = (targetPoint and (targetPoint - hrp.Position).Unit) or hrp.CFrame.LookVector
+            local camPos = hrp.Position - lookDir * cfg.thirdPersonDistance + Vector3.new(0, cfg.thirdPersonHeight, 0)
+            Camera.CFrame = CFrame.new(camPos, targetPoint or (hrp.Position + Vector3.new(0, 1.5, 0)))
+        else
+            if cfg.aimbotEnabled and targetPoint then
+                Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPoint)
+            end
+        end
+    end
 
-local mainCorner = Instance.new("UICorner")
-mainCorner.CornerRadius = UDim.new(0, 12)
-mainCorner.Parent = mainFrame
-
--- Заголовок
-local titleBar = Instance.new("Frame")
-titleBar.Size = UDim2.new(1, 0, 0, 25)
-titleBar.BackgroundTransparency = 1
-titleBar.Parent = mainFrame
-
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -60, 1, 0)
-title.BackgroundTransparency = 1
-title.Font = Enum.Font.GothamBold
-title.Text = "Sabb Hub"
-title.TextColor3 = Color3.fromRGB(200, 200, 220)
-title.TextSize = 16
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Parent = titleBar
-
-local minBtn = Instance.new("TextButton")
-minBtn.Size = UDim2.new(0, 25, 0, 25)
-minBtn.Position = UDim2.new(1, -55, 0, 0)
-minBtn.BackgroundTransparency = 1
-minBtn.Text = "−"
-minBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
-minBtn.TextSize = 18
-minBtn.Font = Enum.Font.GothamBold
-minBtn.AutoButtonColor = false
-minBtn.Parent = titleBar
-local isMinimized = false
-minBtn.MouseButton1Click:Connect(function()
-    isMinimized = not isMinimized
-    mainFrame.Size = isMinimized and UDim2.new(0, 200, 0, 25) or UDim2.new(0, 200, 0, 560)
-    minBtn.Text = isMinimized and "+" or "−"
-    for _, child in ipairs(mainFrame:GetChildren()) do
-        if child ~= titleBar then
-            child.Visible = not isMinimized
+    if cfg.bunnyHopEnabled then
+        local humanoid = char and char:FindFirstChild("Humanoid")
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if humanoid and hrp then
+            local state = humanoid:GetState()
+            if state == Enum.HumanoidStateType.Landed or state == Enum.HumanoidStateType.Running then
+                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
         end
     end
 end)
 
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 25, 0, 25)
-closeBtn.Position = UDim2.new(1, -30, 0, 0)
-closeBtn.BackgroundTransparency = 1
-closeBtn.Text = "✕"
-closeBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
-closeBtn.TextSize = 14
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.AutoButtonColor = false
-closeBtn.Parent = titleBar
-closeBtn.MouseButton1Click:Connect(function()
-    mainFrame.Visible = false
-end)
-
--- Перетаскивание
-local dragging = false
-local dragStart = nil
-local frameStart = nil
-titleBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        frameStart = mainFrame.Position
-    end
-end)
-titleBar.InputChanged:Connect(function(input)
-    if dragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
-        local delta = input.Position - dragStart
-        mainFrame.Position = UDim2.new(
-            frameStart.X.Scale,
-            frameStart.X.Offset + delta.X,
-            frameStart.Y.Scale,
-            frameStart.Y.Offset + delta.Y
-        )
-    end
-end)
-titleBar.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = false
-        dragStart = nil
-        frameStart = nil
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and cfg.silentAimEnabled and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+        local target = getClosestTarget()
+        if target then
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Position)
+        end
     end
 end)
 
--- Вкладки
-local tabsFrame = Instance.new("Frame")
-tabsFrame.Size = UDim2.new(1, 0, 0, 25)
-tabsFrame.Position = UDim2.new(0, 0, 0, 25)
-tabsFrame.BackgroundTransparency = 1
-tabsFrame.Parent = mainFrame
+print("✅ Часть 1 загружена!")
+-- Sab Hub v1.1 – Часть 2 (Интерфейс GUI)
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 
-local mainTab = Instance.new("TextButton")
-mainTab.Size = UDim2.new(0.5, -2, 1, 0)
-mainTab.Position = UDim2.new(0, 0, 0, 0)
-mainTab.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
-mainTab.BackgroundTransparency = 0.2
-mainTab.Text = "Main"
-mainTab.TextColor3 = Color3.new(1, 1, 1)
-mainTab.TextSize = 14
-mainTab.Font = Enum.Font.GothamSemibold
-mainTab.AutoButtonColor = false
-mainTab.Parent = tabsFrame
-local mainTabCorner = Instance.new("UICorner")
-mainTabCorner.CornerRadius = UDim.new(0, 6)
-mainTabCorner.Parent = mainTab
+local cfg = getgenv().SabConfig or {
+    espEnabled = false, espNameEnabled = true, espHealthEnabled = true, espDistEnabled = true,
+    chamsEnabled = false, aimbotEnabled = false, silentAimEnabled = false, FOV = 150,
+    spinEnabled = false, spinSpeed = 5, thirdPersonEnabled = false, bunnyHopEnabled = true, infiniteJumpEnabled = true
+}
 
-local infoTab = Instance.new("TextButton")
-infoTab.Size = UDim2.new(0.5, -2, 1, 0)
-infoTab.Position = UDim2.new(0.5, 2, 0, 0)
-infoTab.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
-infoTab.BackgroundTransparency = 0.2
-infoTab.Text = "Info"
-infoTab.TextColor3 = Color3.new(1, 1, 1)
-infoTab.TextSize = 14
-infoTab.Font = Enum.Font.GothamSemibold
-infoTab.AutoButtonColor = false
-infoTab.Parent = tabsFrame
-local infoTabCorner = Instance.new("UICorner")
-infoTabCorner.CornerRadius = UDim.new(0, 6)
-infoTabCorner.Parent = infoTab
+if CoreGui:FindFirstChild("SabHubGUI") then
+    CoreGui.SabHubGUI:Destroy()
+end
 
--- Контейнер Main
-local mainContent = Instance.new("Frame")
-mainContent.Size = UDim2.new(1, 0, 1, -50)
-mainContent.Position = UDim2.new(0, 0, 0, 50)
-mainContent.BackgroundTransparency = 1
-mainContent.Parent = mainFrame
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "SabHubGUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = CoreGui
 
--- Контейнер Info
-local infoContent = Instance.new("Frame")
-infoContent.Size = UDim2.new(1, 0, 1, -50)
-infoContent.Position = UDim2.new(0, 0, 0, 50)
-infoContent.BackgroundTransparency = 1
-infoContent.Visible = false
-infoContent.Parent = mainFrame
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 520, 0, 340)
+MainFrame.Position = UDim2.new(0.5, -260, 0.5, -170)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 18)
+MainFrame.BorderSizePixel = 0
+MainFrame.Parent = ScreenGui
 
--- Info
-local infoLabel = Instance.new("TextLabel")
-infoLabel.Size = UDim2.new(1, 0, 1, 0)
-infoLabel.BackgroundTransparency = 1
-infoLabel.Font = Enum.Font.Gotham
-infoLabel.Text = "Sabb Hub v1.4\nby @sab1488\nTelegram: @sabhubb"
-infoLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
-infoLabel.TextSize = 14
-infoLabel.TextXAlignment = Enum.TextXAlignment.Center
-infoLabel.TextYAlignment = Enum.TextYAlignment.Top
-infoLabel.Parent = infoContent
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 10)
+MainCorner.Parent = MainFrame
 
--- Переключение вкладок
-mainTab.MouseButton1Click:Connect(function()
-    mainContent.Visible = true
-    infoContent.Visible = false
-    mainTab.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
-    infoTab.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+local TopBar = Instance.new("Frame")
+TopBar.Size = UDim2.new(1, 0, 0, 35)
+TopBar.BackgroundTransparency = 1
+TopBar.Parent = MainFrame
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(0, 120, 1, 0)
+Title.Position = UDim2.new(0, 15, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Font = Enum.Font.GothamBold
+Title.Text = "Sab Hub"
+Title.TextColor3 = Color3.fromRGB(240, 240, 245)
+Title.TextSize = 15
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = TopBar
+
+local SubTitle = Instance.new("TextLabel")
+SubTitle.Size = UDim2.new(0, 150, 1, 0)
+SubTitle.Position = UDim2.new(0, 85, 0, 0)
+SubTitle.BackgroundTransparency = 1
+SubTitle.Font = Enum.Font.Gotham
+SubTitle.Text = "v1.1"
+SubTitle.TextColor3 = Color3.fromRGB(120, 120, 130)
+SubTitle.TextSize = 11
+SubTitle.TextXAlignment = Enum.TextXAlignment.Left
+SubTitle.Parent = TopBar
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 25, 0, 25)
+MinBtn.Position = UDim2.new(1, -60, 0, 5)
+MinBtn.BackgroundTransparency = 1
+MinBtn.Text = "−"
+MinBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+MinBtn.TextSize = 16
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.Parent = TopBar
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 25, 0, 25)
+CloseBtn.Position = UDim2.new(1, -30, 0, 5)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.Text = "✕"
+CloseBtn.TextColor3 = Color3.fromRGB(200, 80, 80)
+CloseBtn.TextSize = 14
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.Parent = TopBar
+
+CloseBtn.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
 end)
-infoTab.MouseButton1Click:Connect(function()
-    mainContent.Visible = false
-    infoContent.Visible = true
-    infoTab.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
-    mainTab.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
-end)
 
--- Main Content
-local content = mainContent
+local Sidebar = Instance.new("ScrollingFrame")
+Sidebar.Size = UDim2.new(0, 160, 1, -45)
+Sidebar.Position = UDim2.new(0, 10, 0, 40)
+Sidebar.BackgroundTransparency = 1
+Sidebar.BorderSizePixel = 0
+Sidebar.CanvasSize = UDim2.new(0, 0, 0, 200)
+Sidebar.ScrollBarThickness = 2
+Sidebar.Parent = MainFrame
 
--- Функция создания кнопок
-local function createButton(text, y, initColor, callback)
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0, 5)
+UIListLayout.Parent = Sidebar
+
+local ContentArea = Instance.new("Frame")
+ContentArea.Size = UDim2.new(1, -180, 1, -45)
+ContentArea.Position = UDim2.new(0, 175, 0, 40)
+ContentArea.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
+ContentArea.BorderSizePixel = 0
+ContentArea.Parent = MainFrame
+
+local ContentCorner = Instance.new("UICorner")
+ContentCorner.CornerRadius = UDim.new(0, 8)
+ContentCorner.Parent = ContentArea
+
+local tabsPages = {}
+local function createTabPage(name)
+    local page = Instance.new("ScrollingFrame")
+    page.Size = UDim2.new(1, -10, 1, -10)
+    page.Position = UDim2.new(0, 5, 0, 5)
+    page.BackgroundTransparency = 1
+    page.BorderSizePixel = 0
+    page.CanvasSize = UDim2.new(0, 0, 0, 400)
+    page.ScrollBarThickness = 3
+    page.Visible = false
+    page.Parent = ContentArea
+
+    local layout = Instance.new("UIListLayout")
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 8)
+    layout.Parent = page
+
+    tabsPages[name] = page
+    return page
+end
+
+local pageMain = createTabPage("Main")
+local pageAim = createTabPage("Aim")
+local pageWH = createTabPage("WallHack")
+local pageRest = createTabPage("Rest")
+
+local function createTabButton(name, order, pageObj)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0, 180, 0, 28)
-    btn.Position = UDim2.new(0.5, -90, 0, y)
-    btn.BackgroundColor3 = initColor
-    btn.BackgroundTransparency = 0.2
-    btn.Text = text
-    btn.TextColor3 = Color3.new(1, 1, 1)
-    btn.TextSize = 13
-    btn.Font = Enum.Font.GothamSemibold
+    btn.Size = UDim2.new(1, -5, 0, 35)
+    btn.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    btn.BorderSizePixel = 0
     btn.AutoButtonColor = false
-    btn.Parent = content
+    btn.Font = Enum.Font.GothamMedium
+    btn.Text = "   " .. name
+    btn.TextColor3 = Color3.fromRGB(170, 170, 180)
+    btn.TextSize = 13
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    btn.LayoutOrder = order
+    btn.Parent = Sidebar
+
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
+    corner.CornerRadius = UDim.new(0, 6)
     corner.Parent = btn
+
     btn.MouseButton1Click:Connect(function()
-        callback(btn)
+        for _, p in pairs(tabsPages) do p.Visible = false end
+        for _, child in ipairs(Sidebar:GetChildren()) do
+            if child:IsA("TextButton") then
+                child.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+                child.TextColor3 = Color3.fromRGB(170, 170, 180)
+            end
+        end
+        pageObj.Visible = true
+        btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     end)
     return btn
 end
 
--- Кнопки (ESP, Aimbot, Spin, 3rd Person, Silent Aim, BunnyHop, Chams)
-local espBtn = createButton("ESP: OFF", 3, Color3.fromRGB(180, 50, 50), function(btn)
-    espEnabled = not espEnabled
-    btn.Text = espEnabled and "ESP: ON" or "ESP: OFF"
-    btn.BackgroundColor3 = espEnabled and Color3.fromRGB(0, 180, 80) or Color3.fromRGB(180, 50, 50)
-    if not espEnabled then for p,_ in pairs(espLabels) do removeESP(p) end else for _,p in pairs(Players:GetPlayers()) do if p~=LocalPlayer and p.Character then createESP(p) end end end
+createTabButton("Main", 1, pageMain)
+createTabButton("Aim", 2, pageAim)
+createTabButton("WallHack", 3, pageWH)
+createTabButton("Rest", 4, pageRest)
+
+pageMain.Visible = true
+Sidebar:GetChildren()[2].BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+Sidebar:GetChildren()[2].TextColor3 = Color3.fromRGB(255, 255, 255)
+
+local isMinimized = false
+MinBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    if isMinimized then
+        MainFrame.Size = UDim2.new(0, 520, 0, 35)
+        MinBtn.Text = "+"
+        Sidebar.Visible = false
+        ContentArea.Visible = false
+    else
+        MainFrame.Size = UDim2.new(0, 520, 0, 340)
+        MinBtn.Text = "−"
+        Sidebar.Visible = true
+        ContentArea.Visible = true
+    end
 end)
 
-local aimBtn = createButton("Aimbot: OFF", 35, Color3.fromRGB(200, 80, 80), function(btn)
-    aimbotEnabled = not aimbotEnabled
-    btn.Text = aimbotEnabled and "Aimbot: ON" or "Aimbot: OFF"
-    btn.BackgroundColor3 = aimbotEnabled and Color3.fromRGB(0, 180, 80) or Color3.fromRGB(200, 80, 80)
+local dragging, dragInput, dragStart, startPos
+TopBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
 end)
 
-local spinBtn = createButton("Spin: OFF", 67, Color3.fromRGB(200, 180, 80), function(btn)
-    spinEnabled = not spinEnabled
-    btn.Text = spinEnabled and "Spin: ON" or "Spin: OFF"
-    btn.BackgroundColor3 = spinEnabled and Color3.fromRGB(0, 180, 80) or Color3.fromRGB(200, 180, 80)
+UserInputService.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
 end)
 
-local thirdBtn = createButton("3rd Person: OFF", 99, Color3.fromRGB(80, 150, 200), function(btn)
-    thirdPersonEnabled = not thirdPersonEnabled
-    btn.Text = thirdPersonEnabled and "3rd: ON" or "3rd: OFF"
-    btn.BackgroundColor3 = thirdPersonEnabled and Color3.fromRGB(0, 180, 80) or Color3.fromRGB(80, 150, 200)
+RunService.RenderStepped:Connect(function()
+    if dragging and dragInput then
+        local delta = dragInput.Position - dragStart
+        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
 end)
 
-local silentBtn = createButton("Silent Aim: OFF", 131, Color3.fromRGB(200, 100, 200), function(btn)
-    silentAimEnabled = not silentAimEnabled
-    btn.Text = silentAimEnabled and "Silent Aim: ON" or "Silent Aim: OFF"
-    btn.BackgroundColor3 = silentAimEnabled and Color3.fromRGB(0, 180, 80) or Color3.fromRGB(200, 100, 200)
-end)
+local function addToggle(parent, text, key, default)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, -5, 0, 34)
+    frame.BackgroundColor3 = Color3.fromRGB(28, 28, 35)
+    frame.BorderSizePixel = 0
+    frame.Parent = parent
 
-local bhopBtn = createButton("BunnyHop: OFF", 163, Color3.fromRGB(255, 200, 0), function(btn)
-    bunnyHopEnabled = not bunnyHopEnabled
-    btn.Text = bunnyHopEnabled and "BunnyHop: ON" or "BunnyHop: OFF"
-    btn.BackgroundColor3 = bunnyHopEnabled and Color3.fromRGB(0, 180, 80) or Color3.fromRGB(255, 200, 0)
-end)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = frame
 
-local chamsBtn = createButton("Chams: OFF", 195, Color3.fromRGB(200, 100, 255), function(btn)
-    chamsEnabled = not chamsEnabled
-    btn.Text = chamsEnabled and "Chams: ON" or "Chams: OFF"
-    btn.BackgroundColor3 = chamsEnabled and Color3.fromRGB(0, 180, 80) or Color3.fromRGB(200, 100, 255)
-    if not chamsEnabled then for p,_ in pairs(chamsHighlights) do removeChams(p) end else for _,p in pairs(Players:GetPlayers()) do if p~=LocalPlayer and p.Character then createChams(p) end end end
-end)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -70, 1, 0)
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.Gotham
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(220, 220, 225)
+    label.TextSize = 12
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
 
--- Instant Kill (следование)
-local killBtn = createButton("Instant Kill: OFF", 227, Color3.fromRGB(255, 0, 0), function(btn)
-    toggleFollow()
-    btn.Text = followEnabled and "Instant Kill: ON" or "Instant Kill: OFF"
-    btn.BackgroundColor3 = followEnabled and Color3.fromRGB(0, 180, 0) or Color3.fromRGB(255, 0, 0)
-end)
+    local state = default
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, 50, 0, 20)
+    btn.Position = UDim2.new(1, -58, 0.5, -10)
+    btn.BackgroundColor3 = state and Color3.fromRGB(0, 200, 100) or Color3.fromRGB(45, 45, 55)
+    btn.Text = state and "ON" or "OFF"
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 10
+    btn.Font = Enum.Font.GothamBold
+    btn.Parent = frame
 
--- Telekill
-local teleBtn = createButton("Telekill", 259, Color3.fromRGB(200, 50, 50), function(btn)
-    Telekill()
-    btn.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
-    task.wait(0.2)
-    btn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-end)
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 4)
+    btnCorner.Parent = btn
 
--- MassKill
-local massBtn = createButton("MassKill: OFF", 291, Color3.fromRGB(50, 200, 50), function(btn)
-    toggleMassKill()
-    btn.Text = massKillEnabled and "MassKill: ON" or "MassKill: OFF"
-    btn.BackgroundColor3 = massKillEnabled and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(200, 50, 50)
-end)
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        cfg[key] = state
+        btn.BackgroundColor3 = state and Color3.fromRGB(0, 200, 100) or Color3.fromRGB(45, 45, 55)
+        btn.Text = state and "ON" or "OFF"
+    end)
+end
 
--- FOV
-local fovLabel = Instance.new("TextLabel")
-fovLabel.Size = UDim2.new(0, 80, 0, 20)
-fovLabel.Position = UDim2.new(0.5, -80, 0, 330)
-fovLabel.BackgroundTransparency = 1
-fovLabel.Font = Enum.Font.GothamSemibold
-fovLabel.Text = "FOV: " .. FOV
-fovLabel.TextColor3 = Color3.fromRGB(200, 200, 210)
-fovLabel.TextSize = 13
-fovLabel.TextXAlignment = Enum.TextXAlignment.Left
-fovLabel.Parent = content
+local function addSlider(parent, text, key, min, max, default)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, -5, 0, 45)
+    frame.BackgroundColor3 = Color3.fromRGB(28, 28, 35)
+    frame.BorderSizePixel = 0
+    frame.Parent = parent
 
-local fovMinus = Instance.new("TextButton")
-fovMinus.Size = UDim2.new(0, 30, 0, 24)
-fovMinus.Position = UDim2.new(0.5, 10, 0, 355)
-fovMinus.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-fovMinus.Text = "−"
-fovMinus.TextColor3 = Color3.new(1, 1, 1)
-fovMinus.TextSize = 16
-fovMinus.Font = Enum.Font.GothamBold
-fovMinus.AutoButtonColor = false
-fovMinus.Parent = content
-local fovMinusCorner = Instance.new("UICorner")
-fovMinusCorner.CornerRadius = UDim.new(0, 6)
-fovMinusCorner.Parent = fovMinus
-fovMinus.MouseButton1Click:Connect(function()
-    FOV = math.max(20, FOV - 10)
-    fovLabel.Text = "FOV: " .. FOV
-end)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = frame
 
-local fovPlus = Instance.new("TextButton")
-fovPlus.Size = UDim2.new(0, 30, 0, 24)
-fovPlus.Position = UDim2.new(0.5, 50, 0, 355)
-fovPlus.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-fovPlus.Text = "+"
-fovPlus.TextColor3 = Color3.new(1, 1, 1)
-fovPlus.TextSize = 16
-fovPlus.Font = Enum.Font.GothamBold
-fovPlus.AutoButtonColor = false
-fovPlus.Parent = content
-local fovPlusCorner = Instance.new("UICorner")
-fovPlusCorner.CornerRadius = UDim.new(0, 6)
-fovPlusCorner.Parent = fovPlus
-fovPlus.MouseButton1Click:Connect(function()
-    FOV = math.min(300, FOV + 10)
-    fovLabel.Text = "FOV: " .. FOV
-end)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -20, 0, 20)
+    label.Position = UDim2.new(0, 10, 0, 4)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.Gotham
+    label.Text = text .. ": " .. default
+    label.TextColor3 = Color3.fromRGB(220, 220, 225)
+    label.TextSize = 12
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
 
--- Spin Speed
-local spinLabel = Instance.new("TextLabel")
-spinLabel.Size = UDim2.new(0, 100, 0, 20)
-spinLabel.Position = UDim2.new(0.5, -90, 0, 390)
-spinLabel.BackgroundTransparency = 1
-spinLabel.Font = Enum.Font.GothamSemibold
-spinLabel.Text = "Spin Speed: " .. spinSpeed
-spinLabel.TextColor3 = Color3.fromRGB(200, 200, 210)
-spinLabel.TextSize = 13
-spinLabel.TextXAlignment = Enum.TextXAlignment.Left
-spinLabel.Parent = content
+    local sliderBg = Instance.new("Frame")
+    sliderBg.Size = UDim2.new(1, -20, 0, 6)
+    sliderBg.Position = UDim2.new(0, 10, 0, 28)
+    sliderBg.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+    sliderBg.BorderSizePixel = 0
+    sliderBg.Parent = frame
 
-local spinMinus = Instance.new("TextButton")
-spinMinus.Size = UDim2.new(0, 30, 0, 24)
-spinMinus.Position = UDim2.new(0.5, 30, 0, 415)
-spinMinus.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-spinMinus.Text = "−"
-spinMinus.TextColor3 = Color3.new(1, 1, 1)
-spinMinus.TextSize = 16
-spinMinus.Font = Enum.Font.GothamBold
-spinMinus.AutoButtonColor = false
-spinMinus.Parent = content
-local spinMinusCorner = Instance.new("UICorner")
-spinMinusCorner.CornerRadius = UDim.new(0, 6)
-spinMinusCorner.Parent = spinMinus
-spinMinus.MouseButton1Click:Connect(function()
-    spinSpeed = math.max(1, spinSpeed - 1)
-    spinLabel.Text = "Spin Speed: " .. spinSpeed
-end)
+    local sCorner = Instance.new("UICorner")
+    sCorner.CornerRadius = UDim.new(1, 0)
+    sCorner.Parent = sliderBg
 
-local spinPlus = Instance.new("TextButton")
-spinPlus.Size = UDim2.new(0, 30, 0, 24)
-spinPlus.Position = UDim2.new(0.5, 70, 0, 415)
-spinPlus.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-spinPlus.Text = "+"
-spinPlus.TextColor3 = Color3.new(1, 1, 1)
-spinPlus.TextSize = 16
-spinPlus.Font = Enum.Font.GothamBold
-spinPlus.AutoButtonColor = false
-spinPlus.Parent = content
-local spinPlusCorner = Instance.new("UICorner")
-spinPlusCorner.CornerRadius = UDim.new(0, 6)
-spinPlusCorner.Parent = spinPlus
-spinPlus.MouseButton1Click:Connect(function()
-    spinSpeed = math.min(20, spinSpeed + 1)
-    spinLabel.Text = "Spin Speed: " .. spinSpeed
-end)
+    local sliderFill = Instance.new("Frame")
+    sliderFill.Size = UDim2.new((default - min)/(max - min), 0, 1, 0)
+    sliderFill.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+    sliderFill.BorderSizePixel = 0
+    sliderFill.Parent = sliderBg
 
--- Информация
-local infoFrame = Instance.new("Frame")
-infoFrame.Size = UDim2.new(1, 0, 0, 20)
-infoFrame.Position = UDim2.new(0, 0, 1, -20)
-infoFrame.BackgroundTransparency = 1
-infoFrame.Parent = content
+    local fCorner = Instance.new("UICorner")
+    fCorner.CornerRadius = UDim.new(1, 0)
+    fCorner.Parent = sliderFill
 
-local verLabel = Instance.new("TextLabel")
-verLabel.Size = UDim2.new(1, 0, 1, 0)
-verLabel.BackgroundTransparency = 1
-verLabel.Font = Enum.Font.Gotham
-verLabel.Text = "v1.4 – Telekill & MassKill (improved)"
-verLabel.TextColor3 = Color3.fromRGB(140, 140, 160)
-verLabel.TextSize = 10
-verLabel.TextXAlignment = Enum.TextXAlignment.Center
-verLabel.Parent = infoFrame
+    local draggingSlider = false
+    sliderBg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            draggingSlider = true
+        end
+    end)
 
-print("✅ Часть 2 загружена (GUI + основной цикл). Скрипт полностью работает.")
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            draggingSlider = false
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if draggingSlider and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local pos = math.clamp((input.Position.X - sliderBg.AbsolutePosition.X) / sliderBg.AbsoluteSize.X, 0, 1)
+            sliderFill.Size = UDim2.new(pos, 0, 1, 0)
+            local val = math.floor(min + (max - min) * pos)
+            label.Text = text .. ": " .. val
+            cfg[key] = val
+        end
+    end)
+end
+
+-- НАПОЛНЕНИЕ ВКЛАДОК
+local mainTitle = Instance.new("TextLabel")
+mainTitle.Size = UDim2.new(1, -5, 0, 25)
+mainTitle.BackgroundTransparency = 1
+mainTitle.Font = Enum.Font.GothamBold
+mainTitle.Text = "By @sab1488"
+mainTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+mainTitle.TextSize = 14
+mainTitle.TextXAlignment = Enum.TextXAlignment.Left
+mainTitle.Parent = pageMain
+
+local mainTele = Instance.new("TextLabel")
+mainTele.Size = UDim2.new(1, -5, 0, 25)
+mainTele.BackgroundTransparency = 1
+mainTele.Font = Enum.Font.GothamBold
+mainTele.Text = "Telegram channel: SabHubb"
+mainTele.TextColor3 = Color3.fromRGB(0, 170, 255)
+mainTele.TextSize = 13
+mainTele.TextXAlignment = Enum.TextXAlignment.Left
+mainTele.Parent = pageMain
+
+addToggle(pageAim, "Aimbot", "aimbotEnabled", false)
+addToggle(pageAim, "Silent Aim", "silentAimEnabled", false)
+addSlider(pageAim, "FOV Size", "FOV", 50, 400, 150)
+
+addToggle(pageWH, "Enable ESP (Global)", "espEnabled", false)
+addToggle(pageWH, "ESP Nicknames", "espNameEnabled", true)
+addToggle(pageWH, "ESP Health Bar", "espHealthEnabled", true)
+addToggle(pageWH, "ESP Distance", "espDistEnabled", true)
+addToggle(pageWH, "Chams (Highlight)", "chamsEnabled", false)
+
+addToggle(pageRest, "SpinBot", "spinEnabled", false)
+addSlider(pageRest, "Spin Speed", "spinSpeed", 1, 30, 5)
+addToggle(pageRest, "Third Person", "thirdPersonEnabled", false)
+addToggle(pageRest, "BunnyHop", "bunnyHopEnabled", false)
+addToggle(pageRest, "Infinite Jump", "infiniteJumpEnabled", true)
+
+print("✅ Часть 2 загружена. Sab Hub v1.1 полностью готов!")
