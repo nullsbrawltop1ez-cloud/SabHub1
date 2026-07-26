@@ -1,5 +1,7 @@
--- Sabb Edition v1.0 – с вкладками Main/Info, закруглённые кнопки
-print("Загрузка Sabb v1.0...")
+-- ============================================================
+-- ЧАСТЬ 1: Все функции (ESP, CHAMS, Aimbot, Spin, Camera, Silent Aim, BunnyHop, Telekill, MassKill, Follow)
+-- ============================================================
+print("Загрузка части 1...")
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -8,7 +10,7 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local CoreGui = game:GetService("CoreGui")
 
--- ===== НАСТРОЙКИ =====
+-- Настройки
 local espEnabled = false
 local aimbotEnabled = false
 local spinEnabled = false
@@ -22,6 +24,14 @@ local thirdPersonDistance = 8
 local thirdPersonHeight = 3
 local bhopSpeed = 28
 local spinAngle = 0
+
+-- Переменные для Instant Kill (следование)
+local followEnabled = false
+local followTarget = nil
+
+-- Переменные для MassKill
+local massKillEnabled = false
+local massKillConnection = nil
 
 -- ===== CHAMS =====
 local chamsHighlights = {}
@@ -180,6 +190,29 @@ local function getClosestTarget()
     return closest
 end
 
+-- ===== ПОИСК БЛИЖАЙШЕГО ИГРОКА =====
+local function getClosestPlayer()
+    local closest = nil
+    local minDist = FOV
+    local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        local char = player.Character
+        if not char then continue end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChild("Humanoid")
+        if not hrp or not hum or hum.Health <= 0 then continue end
+        local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+        if not onScreen then continue end
+        local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+        if dist < minDist then
+            minDist = dist
+            closest = player
+        end
+    end
+    return closest
+end
+
 -- ===== SPIN =====
 local function doSpin()
     if not spinEnabled then return end
@@ -267,6 +300,123 @@ UserInputService.JumpRequest:Connect(function()
     end
 end)
 
+-- ===== TELEKILL =====
+local function Telekill()
+    local myChar = LocalPlayer.Character
+    if not myChar then return end
+    local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+    local targetPos = myRoot.Position
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        local char = player.Character
+        if not char then continue end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if root then
+            local offset = Vector3.new(math.random(-3, 3), 0, math.random(-3, 3))
+            root.CFrame = CFrame.new(targetPos + offset)
+        end
+    end
+    print("✅ Telekill: все игроки телепортированы к вам!")
+end
+
+-- ===== MASSKILL =====
+local function startMassKill()
+    if massKillEnabled then return end
+    massKillEnabled = true
+    spawn(function()
+        while massKillEnabled do
+            local myChar = LocalPlayer.Character
+            if not myChar then 
+                wait(1)
+                continue 
+            end
+            local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+            if not myRoot then 
+                wait(1)
+                continue 
+            end
+            local targets = {}
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer then
+                    local char = player.Character
+                    if char then
+                        local root = char:FindFirstChild("HumanoidRootPart")
+                        if root then
+                            table.insert(targets, root)
+                        end
+                    end
+                end
+            end
+            if #targets > 0 then
+                local targetRoot = targets[math.random(1, #targets)]
+                myRoot.CFrame = targetRoot.CFrame + Vector3.new(0, 2, 0)
+                print("🚀 MassKill: телепортировался к " .. targetRoot.Parent.Name)
+            else
+                print("⚠️ MassKill: нет доступных игроков")
+            end
+            for i = 1, 60 do
+                if not massKillEnabled then break end
+                wait(1)
+            end
+        end
+        massKillConnection = nil
+    end)
+end
+
+local function stopMassKill()
+    massKillEnabled = false
+    if massKillConnection then
+        massKillConnection:Disconnect()
+        massKillConnection = nil
+    end
+    print("⏹️ MassKill остановлен")
+end
+
+local function toggleMassKill()
+    if massKillEnabled then
+        stopMassKill()
+    else
+        startMassKill()
+    end
+end
+
+-- ===== ТЕЛЕПОРТ ЗА СПИНУ (Instant Kill Follow) =====
+local function teleportBehind(target)
+    if not target then return end
+    local char = target.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local myChar = LocalPlayer.Character
+    if not myChar then return end
+    local myHrp = myChar:FindFirstChild("HumanoidRootPart")
+    if not myHrp then return end
+    local lookVec = hrp.CFrame.LookVector
+    local behindPos = hrp.Position - lookVec * 4 + Vector3.new(0, 2, 0)
+    myHrp.CFrame = CFrame.new(behindPos, hrp.Position)
+end
+
+local function toggleFollow()
+    if followEnabled then
+        followEnabled = false
+        followTarget = nil
+        return
+    end
+    local target = getClosestPlayer()
+    if target then
+        followTarget = target
+        followEnabled = true
+        teleportBehind(target)
+    end
+end
+
+print("✅ Часть 1 загружена (функции). Теперь выполните часть 2.")
+-- ============================================================
+-- ЧАСТЬ 2: GUI и основной цикл
+-- ============================================================
+print("Загрузка части 2...")
+
 -- ===== ОСНОВНОЙ ЦИКЛ =====
 RunService.RenderStepped:Connect(function()
     updateESP()
@@ -274,16 +424,44 @@ RunService.RenderStepped:Connect(function()
     doSpin()
     updateCamera()
     doBunnyHop()
+    
+    if followEnabled and followTarget then
+        local char = followTarget.Character
+        if not char then
+            followEnabled = false
+            followTarget = nil
+            return
+        end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            followEnabled = false
+            followTarget = nil
+            return
+        end
+        local hum = char:FindFirstChild("Humanoid")
+        if not hum or hum.Health <= 0 then
+            followEnabled = false
+            followTarget = nil
+            return
+        end
+        local myChar = LocalPlayer.Character
+        if not myChar then return end
+        local myHrp = myChar:FindFirstChild("HumanoidRootPart")
+        if not myHrp then return end
+        local lookVec = hrp.CFrame.LookVector
+        local behindPos = hrp.Position - lookVec * 4 + Vector3.new(0, 2, 0)
+        myHrp.CFrame = CFrame.new(behindPos, hrp.Position)
+    end
 end)
 
--- ===== GUI с вкладками =====
+-- ===== GUI =====
 local gui = Instance.new("ScreenGui")
 gui.Name = "SabbGUI"
 gui.ResetOnSpawn = false
 gui.Parent = CoreGui
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 200, 0, 460)
+mainFrame.Size = UDim2.new(0, 200, 0, 560) -- увеличено для новых кнопок
 mainFrame.Position = UDim2.new(0, 10, 0, 10)
 mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
 mainFrame.BackgroundTransparency = 0.1
@@ -292,7 +470,6 @@ mainFrame.BorderColor3 = Color3.fromRGB(60, 60, 80)
 mainFrame.Parent = gui
 mainFrame.ClipsDescendants = true
 
--- Закругление главной панели
 local mainCorner = Instance.new("UICorner")
 mainCorner.CornerRadius = UDim.new(0, 12)
 mainCorner.Parent = mainFrame
@@ -326,7 +503,7 @@ minBtn.Parent = titleBar
 local isMinimized = false
 minBtn.MouseButton1Click:Connect(function()
     isMinimized = not isMinimized
-    mainFrame.Size = isMinimized and UDim2.new(0, 200, 0, 25) or UDim2.new(0, 200, 0, 460)
+    mainFrame.Size = isMinimized and UDim2.new(0, 200, 0, 25) or UDim2.new(0, 200, 0, 560)
     minBtn.Text = isMinimized and "+" or "−"
     for _, child in ipairs(mainFrame:GetChildren()) do
         if child ~= titleBar then
@@ -431,12 +608,12 @@ infoContent.BackgroundTransparency = 1
 infoContent.Visible = false
 infoContent.Parent = mainFrame
 
--- Заполнение Info (обновлено)
+-- Info
 local infoLabel = Instance.new("TextLabel")
 infoLabel.Size = UDim2.new(1, 0, 1, 0)
 infoLabel.BackgroundTransparency = 1
 infoLabel.Font = Enum.Font.Gotham
-infoLabel.Text = "Sabb Hub v1.0\nby @sab1488\nTelegram channel: @sabhubb"
+infoLabel.Text = "Sabb Hub v1.3\nby @sab1488\nTelegram: @sabhubb"
 infoLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
 infoLabel.TextSize = 14
 infoLabel.TextXAlignment = Enum.TextXAlignment.Center
@@ -450,7 +627,6 @@ mainTab.MouseButton1Click:Connect(function()
     mainTab.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
     infoTab.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
 end)
-
 infoTab.MouseButton1Click:Connect(function()
     mainContent.Visible = false
     infoContent.Visible = true
@@ -483,7 +659,7 @@ local function createButton(text, y, initColor, callback)
     return btn
 end
 
--- ESP
+-- Кнопки (ESP, Aimbot, Spin, 3rd Person, Silent Aim, BunnyHop, Chams)
 local espBtn = createButton("ESP: OFF", 3, Color3.fromRGB(180, 50, 50), function(btn)
     espEnabled = not espEnabled
     btn.Text = espEnabled and "ESP: ON" or "ESP: OFF"
@@ -491,42 +667,36 @@ local espBtn = createButton("ESP: OFF", 3, Color3.fromRGB(180, 50, 50), function
     if not espEnabled then for p,_ in pairs(espLabels) do removeESP(p) end else for _,p in pairs(Players:GetPlayers()) do if p~=LocalPlayer and p.Character then createESP(p) end end end
 end)
 
--- Aimbot
 local aimBtn = createButton("Aimbot: OFF", 35, Color3.fromRGB(200, 80, 80), function(btn)
     aimbotEnabled = not aimbotEnabled
     btn.Text = aimbotEnabled and "Aimbot: ON" or "Aimbot: OFF"
     btn.BackgroundColor3 = aimbotEnabled and Color3.fromRGB(0, 180, 80) or Color3.fromRGB(200, 80, 80)
 end)
 
--- Spin
 local spinBtn = createButton("Spin: OFF", 67, Color3.fromRGB(200, 180, 80), function(btn)
     spinEnabled = not spinEnabled
     btn.Text = spinEnabled and "Spin: ON" or "Spin: OFF"
     btn.BackgroundColor3 = spinEnabled and Color3.fromRGB(0, 180, 80) or Color3.fromRGB(200, 180, 80)
 end)
 
--- 3rd Person
 local thirdBtn = createButton("3rd Person: OFF", 99, Color3.fromRGB(80, 150, 200), function(btn)
     thirdPersonEnabled = not thirdPersonEnabled
     btn.Text = thirdPersonEnabled and "3rd: ON" or "3rd: OFF"
     btn.BackgroundColor3 = thirdPersonEnabled and Color3.fromRGB(0, 180, 80) or Color3.fromRGB(80, 150, 200)
 end)
 
--- Silent Aim
 local silentBtn = createButton("Silent Aim: OFF", 131, Color3.fromRGB(200, 100, 200), function(btn)
     silentAimEnabled = not silentAimEnabled
     btn.Text = silentAimEnabled and "Silent Aim: ON" or "Silent Aim: OFF"
     btn.BackgroundColor3 = silentAimEnabled and Color3.fromRGB(0, 180, 80) or Color3.fromRGB(200, 100, 200)
 end)
 
--- BunnyHop
 local bhopBtn = createButton("BunnyHop: OFF", 163, Color3.fromRGB(255, 200, 0), function(btn)
     bunnyHopEnabled = not bunnyHopEnabled
     btn.Text = bunnyHopEnabled and "BunnyHop: ON" or "BunnyHop: OFF"
     btn.BackgroundColor3 = bunnyHopEnabled and Color3.fromRGB(0, 180, 80) or Color3.fromRGB(255, 200, 0)
 end)
 
--- Chams
 local chamsBtn = createButton("Chams: OFF", 195, Color3.fromRGB(200, 100, 255), function(btn)
     chamsEnabled = not chamsEnabled
     btn.Text = chamsEnabled and "Chams: ON" or "Chams: OFF"
@@ -534,10 +704,32 @@ local chamsBtn = createButton("Chams: OFF", 195, Color3.fromRGB(200, 100, 255), 
     if not chamsEnabled then for p,_ in pairs(chamsHighlights) do removeChams(p) end else for _,p in pairs(Players:GetPlayers()) do if p~=LocalPlayer and p.Character then createChams(p) end end end
 end)
 
--- FOV
+-- Instant Kill (следование)
+local killBtn = createButton("Instant Kill: OFF", 227, Color3.fromRGB(255, 0, 0), function(btn)
+    toggleFollow()
+    btn.Text = followEnabled and "Instant Kill: ON" or "Instant Kill: OFF"
+    btn.BackgroundColor3 = followEnabled and Color3.fromRGB(0, 180, 0) or Color3.fromRGB(255, 0, 0)
+end)
+
+-- Telekill
+local teleBtn = createButton("Telekill", 259, Color3.fromRGB(200, 50, 50), function(btn)
+    Telekill()
+    btn.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+    task.wait(0.2)
+    btn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+end)
+
+-- MassKill
+local massBtn = createButton("MassKill: OFF", 291, Color3.fromRGB(50, 200, 50), function(btn)
+    toggleMassKill()
+    btn.Text = massKillEnabled and "MassKill: ON" or "MassKill: OFF"
+    btn.BackgroundColor3 = massKillEnabled and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(200, 50, 50)
+end)
+
+-- FOV (сдвиг)
 local fovLabel = Instance.new("TextLabel")
 fovLabel.Size = UDim2.new(0, 80, 0, 20)
-fovLabel.Position = UDim2.new(0.5, -80, 0, 233)
+fovLabel.Position = UDim2.new(0.5, -80, 0, 330)
 fovLabel.BackgroundTransparency = 1
 fovLabel.Font = Enum.Font.GothamSemibold
 fovLabel.Text = "FOV: " .. FOV
@@ -548,7 +740,7 @@ fovLabel.Parent = content
 
 local fovMinus = Instance.new("TextButton")
 fovMinus.Size = UDim2.new(0, 30, 0, 24)
-fovMinus.Position = UDim2.new(0.5, 10, 0, 258)
+fovMinus.Position = UDim2.new(0.5, 10, 0, 355)
 fovMinus.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
 fovMinus.Text = "−"
 fovMinus.TextColor3 = Color3.new(1, 1, 1)
@@ -566,7 +758,7 @@ end)
 
 local fovPlus = Instance.new("TextButton")
 fovPlus.Size = UDim2.new(0, 30, 0, 24)
-fovPlus.Position = UDim2.new(0.5, 50, 0, 258)
+fovPlus.Position = UDim2.new(0.5, 50, 0, 355)
 fovPlus.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
 fovPlus.Text = "+"
 fovPlus.TextColor3 = Color3.new(1, 1, 1)
@@ -582,10 +774,10 @@ fovPlus.MouseButton1Click:Connect(function()
     fovLabel.Text = "FOV: " .. FOV
 end)
 
--- Spin Speed
+-- Spin Speed (сдвиг)
 local spinLabel = Instance.new("TextLabel")
 spinLabel.Size = UDim2.new(0, 100, 0, 20)
-spinLabel.Position = UDim2.new(0.5, -90, 0, 292)
+spinLabel.Position = UDim2.new(0.5, -90, 0, 390)
 spinLabel.BackgroundTransparency = 1
 spinLabel.Font = Enum.Font.GothamSemibold
 spinLabel.Text = "Spin Speed: " .. spinSpeed
@@ -596,7 +788,7 @@ spinLabel.Parent = content
 
 local spinMinus = Instance.new("TextButton")
 spinMinus.Size = UDim2.new(0, 30, 0, 24)
-spinMinus.Position = UDim2.new(0.5, 30, 0, 317)
+spinMinus.Position = UDim2.new(0.5, 30, 0, 415)
 spinMinus.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
 spinMinus.Text = "−"
 spinMinus.TextColor3 = Color3.new(1, 1, 1)
@@ -614,7 +806,7 @@ end)
 
 local spinPlus = Instance.new("TextButton")
 spinPlus.Size = UDim2.new(0, 30, 0, 24)
-spinPlus.Position = UDim2.new(0.5, 70, 0, 317)
+spinPlus.Position = UDim2.new(0.5, 70, 0, 415)
 spinPlus.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
 spinPlus.Text = "+"
 spinPlus.TextColor3 = Color3.new(1, 1, 1)
@@ -630,16 +822,21 @@ spinPlus.MouseButton1Click:Connect(function()
     spinLabel.Text = "Spin Speed: " .. spinSpeed
 end)
 
--- Версия
-local ver = Instance.new("TextLabel")
-ver.Size = UDim2.new(1, 0, 0, 15)
-ver.Position = UDim2.new(0, 0, 1, -17)
-ver.BackgroundTransparency = 1
-ver.Font = Enum.Font.Gotham
-ver.Text = "v1.0"
-ver.TextColor3 = Color3.fromRGB(100, 100, 120)
-ver.TextSize = 10
-ver.TextXAlignment = Enum.TextXAlignment.Right
-ver.Parent = content
+-- Информация
+local infoFrame = Instance.new("Frame")
+infoFrame.Size = UDim2.new(1, 0, 0, 20)
+infoFrame.Position = UDim2.new(0, 0, 1, -20)
+infoFrame.BackgroundTransparency = 1
+infoFrame.Parent = content
 
-print("✅ Sabb v1.0 загружен! Вкладки, закругление, всё работает.")
+local verLabel = Instance.new("TextLabel")
+verLabel.Size = UDim2.new(1, 0, 1, 0)
+verLabel.BackgroundTransparency = 1
+verLabel.Font = Enum.Font.Gotham
+verLabel.Text = "v1.3 – Telekill & MassKill"
+verLabel.TextColor3 = Color3.fromRGB(140, 140, 160)
+verLabel.TextSize = 10
+verLabel.TextXAlignment = Enum.TextXAlignment.Center
+verLabel.Parent = infoFrame
+
+print("✅ Часть 2 загружена (GUI + основной цикл). Скрипт полностью работает.")
