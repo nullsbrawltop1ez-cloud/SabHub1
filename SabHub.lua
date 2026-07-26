@@ -31,7 +31,7 @@ local followTarget = nil
 
 -- Переменные для MassKill
 local massKillEnabled = false
-local massKillConnection = nil
+local massKillThread = nil
 
 -- ===== CHAMS =====
 local chamsHighlights = {}
@@ -300,77 +300,93 @@ UserInputService.JumpRequest:Connect(function()
     end
 end)
 
--- ===== TELEKILL =====
+-- ============================================================
+--                  TELEKILL (улучшенный)
+-- ============================================================
 local function Telekill()
     local myChar = LocalPlayer.Character
-    if not myChar then return end
+    if not myChar then 
+        warn("Telekill: у вас нет персонажа")
+        return 
+    end
     local myRoot = myChar:FindFirstChild("HumanoidRootPart")
-    if not myRoot then return end
+    if not myRoot then 
+        warn("Telekill: нет HumanoidRootPart")
+        return 
+    end
+
     local targetPos = myRoot.Position
+    local count = 0
+
     for _, player in ipairs(Players:GetPlayers()) do
         if player == LocalPlayer then continue end
         local char = player.Character
         if not char then continue end
         local root = char:FindFirstChild("HumanoidRootPart")
         if root then
-            local offset = Vector3.new(math.random(-3, 3), 0, math.random(-3, 3))
+            local offset = Vector3.new(
+                math.random(-3, 3),
+                0,
+                math.random(-3, 3)
+            )
             root.CFrame = CFrame.new(targetPos + offset)
+            count = count + 1
         end
     end
-    print("✅ Telekill: все игроки телепортированы к вам!")
+
+    print(string.format("✅ Telekill: %d игроков телепортировано к вам", count))
 end
 
--- ===== MASSKILL =====
+-- ============================================================
+--                  MASSKILL (через coroutine)
+-- ============================================================
 local function startMassKill()
-    if massKillEnabled then return end
+    if massKillThread then return end
+
     massKillEnabled = true
-    spawn(function()
+    massKillThread = coroutine.create(function()
         while massKillEnabled do
             local myChar = LocalPlayer.Character
-            if not myChar then 
-                wait(1)
-                continue 
-            end
-            local myRoot = myChar:FindFirstChild("HumanoidRootPart")
-            if not myRoot then 
-                wait(1)
-                continue 
-            end
-            local targets = {}
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player ~= LocalPlayer then
-                    local char = player.Character
-                    if char then
-                        local root = char:FindFirstChild("HumanoidRootPart")
-                        if root then
-                            table.insert(targets, root)
+            if myChar then
+                local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+                if myRoot then
+                    local targets = {}
+                    for _, player in ipairs(Players:GetPlayers()) do
+                        if player ~= LocalPlayer then
+                            local char = player.Character
+                            if char then
+                                local root = char:FindFirstChild("HumanoidRootPart")
+                                if root then
+                                    table.insert(targets, root)
+                                end
+                            end
                         end
+                    end
+
+                    if #targets > 0 then
+                        local targetRoot = targets[math.random(1, #targets)]
+                        myRoot.CFrame = targetRoot.CFrame + Vector3.new(0, 2, 0)
+                        print("🚀 MassKill: телепортировался к " .. targetRoot.Parent.Name)
+                    else
+                        print("⚠️ MassKill: нет доступных игроков")
                     end
                 end
             end
-            if #targets > 0 then
-                local targetRoot = targets[math.random(1, #targets)]
-                myRoot.CFrame = targetRoot.CFrame + Vector3.new(0, 2, 0)
-                print("🚀 MassKill: телепортировался к " .. targetRoot.Parent.Name)
-            else
-                print("⚠️ MassKill: нет доступных игроков")
-            end
-            for i = 1, 60 do
+
+            for _ = 1, 60 do
                 if not massKillEnabled then break end
                 wait(1)
             end
         end
-        massKillConnection = nil
+        massKillThread = nil
+        print("⏹️ MassKill остановлен")
     end)
+
+    coroutine.resume(massKillThread)
 end
 
 local function stopMassKill()
     massKillEnabled = false
-    if massKillConnection then
-        massKillConnection:Disconnect()
-        massKillConnection = nil
-    end
-    print("⏹️ MassKill остановлен")
 end
 
 local function toggleMassKill()
@@ -411,7 +427,7 @@ local function toggleFollow()
     end
 end
 
-print("✅ Часть 1 загружена (функции). Теперь выполните часть 2.")
+print("✅ Часть 1 загружена (все функции). Теперь выполните часть 2.")
 -- ============================================================
 -- ЧАСТЬ 2: GUI и основной цикл
 -- ============================================================
@@ -461,7 +477,7 @@ gui.ResetOnSpawn = false
 gui.Parent = CoreGui
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 200, 0, 560) -- увеличено для новых кнопок
+mainFrame.Size = UDim2.new(0, 200, 0, 560)
 mainFrame.Position = UDim2.new(0, 10, 0, 10)
 mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
 mainFrame.BackgroundTransparency = 0.1
@@ -613,7 +629,7 @@ local infoLabel = Instance.new("TextLabel")
 infoLabel.Size = UDim2.new(1, 0, 1, 0)
 infoLabel.BackgroundTransparency = 1
 infoLabel.Font = Enum.Font.Gotham
-infoLabel.Text = "Sabb Hub v1.3\nby @sab1488\nTelegram: @sabhubb"
+infoLabel.Text = "Sabb Hub v1.4\nby @sab1488\nTelegram: @sabhubb"
 infoLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
 infoLabel.TextSize = 14
 infoLabel.TextXAlignment = Enum.TextXAlignment.Center
@@ -726,7 +742,7 @@ local massBtn = createButton("MassKill: OFF", 291, Color3.fromRGB(50, 200, 50), 
     btn.BackgroundColor3 = massKillEnabled and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(200, 50, 50)
 end)
 
--- FOV (сдвиг)
+-- FOV
 local fovLabel = Instance.new("TextLabel")
 fovLabel.Size = UDim2.new(0, 80, 0, 20)
 fovLabel.Position = UDim2.new(0.5, -80, 0, 330)
@@ -774,7 +790,7 @@ fovPlus.MouseButton1Click:Connect(function()
     fovLabel.Text = "FOV: " .. FOV
 end)
 
--- Spin Speed (сдвиг)
+-- Spin Speed
 local spinLabel = Instance.new("TextLabel")
 spinLabel.Size = UDim2.new(0, 100, 0, 20)
 spinLabel.Position = UDim2.new(0.5, -90, 0, 390)
@@ -833,7 +849,7 @@ local verLabel = Instance.new("TextLabel")
 verLabel.Size = UDim2.new(1, 0, 1, 0)
 verLabel.BackgroundTransparency = 1
 verLabel.Font = Enum.Font.Gotham
-verLabel.Text = "v1.3 – Telekill & MassKill"
+verLabel.Text = "v1.4 – Telekill & MassKill (improved)"
 verLabel.TextColor3 = Color3.fromRGB(140, 140, 160)
 verLabel.TextSize = 10
 verLabel.TextXAlignment = Enum.TextXAlignment.Center
