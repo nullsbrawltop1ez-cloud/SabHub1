@@ -19,6 +19,7 @@ getgenv().SabConfig = {
     aimbotEnabled = false,
     silentAimEnabled = false,
     FOV = 150,
+    fovCircleEnabled = true,
     spinEnabled = false,
     spinSpeed = 5,
     thirdPersonEnabled = false,
@@ -26,8 +27,8 @@ getgenv().SabConfig = {
     thirdPersonHeight = 3,
     bunnyHopEnabled = false,
     infiniteJumpEnabled = true,
-    teleportDist = 5, -- Расстояние при телепорте
-    teleKillEnabled = false -- Состояние для TeleKill
+    teleportDist = 5,
+    teleKillEnabled = false
 }
 
 local cfg = getgenv().SabConfig
@@ -55,7 +56,24 @@ UserInputService.JumpRequest:Connect(function()
     end
 end)
 
--- Поиск ближайшей цели (для Аима)
+-- ===== ПРОВЕРКА ВИДИМОСТИ (Raycast) =====
+local function isTargetVisible(targetPart)
+    local character = LocalPlayer.Character
+    if not character then return false end
+    local origin = Camera.CFrame.Position
+    local targetPos = targetPart.Position
+    local direction = (targetPos - origin).Unit
+    local distance = (targetPos - origin).Magnitude
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Blacklist
+    params.FilterDescendantsInstances = {character, targetPart.Parent}
+
+    local result = workspace:Raycast(origin, direction * distance, params)
+    return result == nil
+end
+
+-- Поиск ближайшей ВИДИМОЙ цели (для Аима)
 local function getClosestTarget()
     local closest, minDist = nil, cfg.FOV
     local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
@@ -67,7 +85,7 @@ local function getClosestTarget()
                 local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
                 if onScreen then
                     local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
-                    if dist < minDist then
+                    if dist < minDist and isTargetVisible(hrp) then
                         minDist = dist
                         closest = hrp
                     end
@@ -78,7 +96,7 @@ local function getClosestTarget()
     return closest
 end
 
--- Функция TeleportRandomPlayer (телепорт к случайному или ближайшему игроку один раз без молний)
+-- Функция TeleportRandomPlayer
 local function teleportRandomPlayer()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -221,11 +239,46 @@ local function updateESP()
     end
 end
 
+-- ===== ВИЗУАЛЬНЫЙ КРУГ FOV =====
+if CoreGui:FindFirstChild("SabHubFOVCircle") then
+    CoreGui.SabHubFOVCircle:Destroy()
+end
+
+local fovGui = Instance.new("ScreenGui")
+fovGui.Name = "SabHubFOVCircle"
+fovGui.ResetOnSpawn = false
+fovGui.Parent = CoreGui
+
+local fovFrame = Instance.new("Frame")
+fovFrame.Name = "Circle"
+fovFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+fovFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+fovFrame.Size = UDim2.new(0, cfg.FOV * 2, 0, cfg.FOV * 2)
+fovFrame.BackgroundTransparency = 1
+fovFrame.Visible = false
+fovFrame.Parent = fovGui
+
+local fovCorner = Instance.new("UICorner")
+fovCorner.CornerRadius = UDim.new(1, 0)
+fovCorner.Parent = fovFrame
+
+local fovStroke = Instance.new("UIStroke")
+fovStroke.Thickness = 1.5
+fovStroke.Color = Color3.fromRGB(255, 255, 255)
+fovStroke.Transparency = 0.3
+fovStroke.Parent = fovFrame
+
 RunService.RenderStepped:Connect(function()
     updateESP()
     updateChams()
 
-    -- Логика TeleKill (постоянное следование за спиной противника)
+    if cfg.fovCircleEnabled and (cfg.aimbotEnabled or cfg.silentAimEnabled) then
+        fovFrame.Visible = true
+        fovFrame.Size = UDim2.new(0, cfg.FOV * 2, 0, cfg.FOV * 2)
+    else
+        fovFrame.Visible = false
+    end
+
     if cfg.teleKillEnabled then
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -286,6 +339,7 @@ RunService.RenderStepped:Connect(function()
     end
 
     if cfg.bunnyHopEnabled then
+        local char = LocalPlayer.Character
         local humanoid = char and char:FindFirstChild("Humanoid")
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if humanoid and hrp then
@@ -377,6 +431,9 @@ CloseBtn.Font = Enum.Font.GothamBold
 CloseBtn.Parent = TopBar
 
 CloseBtn.MouseButton1Click:Connect(function()
+    if CoreGui:FindFirstChild("SabHubFOVCircle") then
+        CoreGui.SabHubFOVCircle:Destroy()
+    end
     ScreenGui:Destroy()
 end)
 
@@ -555,7 +612,7 @@ local function addToggle(parent, text, key, default)
 
     btn.MouseButton1Click:Connect(function()
         state = not state
-        cfg[key] = state
+        getgenv().SabConfig[key] = state
         btn.BackgroundColor3 = state and Color3.fromRGB(0, 200, 100) or Color3.fromRGB(45, 45, 55)
         btn.Text = state and "ON" or "OFF"
     end)
@@ -623,7 +680,7 @@ local function addSlider(parent, text, key, min, max, default)
             sliderFill.Size = UDim2.new(pos, 0, 1, 0)
             local val = math.floor(min + (max - min) * pos)
             label.Text = text .. ": " .. val
-            cfg[key] = val
+            getgenv().SabConfig[key] = val
         end
     end)
 end
@@ -670,6 +727,7 @@ mainTele.Parent = pageMain
 -- Вкладка Aim
 addToggle(pageAim, "Aimbot", "aimbotEnabled", false)
 addToggle(pageAim, "Silent Aim", "silentAimEnabled", false)
+addToggle(pageAim, "FOV Circle", "fovCircleEnabled", true)
 addSlider(pageAim, "FOV Size", "FOV", 50, 400, 150)
 
 -- Вкладка WallHack
@@ -679,7 +737,7 @@ addToggle(pageWH, "ESP Health Bar", "espHealthEnabled", true)
 addToggle(pageWH, "ESP Distance", "espDistEnabled", true)
 addToggle(pageWH, "Chams (Highlight)", "chamsEnabled", false)
 
--- Вкладка Rest (функционал движения, SpinBot, TeleportRandomPlayer и TeleKill)
+-- Вкладка Rest
 addToggle(pageRest, "SpinBot", "spinEnabled", false)
 addSlider(pageRest, "Spin Speed", "spinSpeed", 1, 30, 5)
 addToggle(pageRest, "Third Person", "thirdPersonEnabled", false)
